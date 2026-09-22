@@ -1,0 +1,5 @@
+flask>=3.0
+waitress>=3.0
+requests>=2.31
+Pillow>=10.0
+luma.oled>=3.13
