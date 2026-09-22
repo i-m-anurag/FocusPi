@@ -108,21 +108,36 @@ To update later, run `git pull`, then `bash deploy.sh` again. Your data and conf
 DND control needs native code, so the app runs as a **development build or APK, not in
 Expo Go**.
 
-**Option A: APK via EAS (easiest, builds in the cloud)**
+**Option A: build the APK locally (fastest, no cloud queue)**
+
+One-time setup on macOS (about 5 GB; no Android Studio needed):
+
+```bash
+brew install openjdk@17 && brew install --cask android-commandlinetools
+```
+
+```bash
+export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools && yes | sdkmanager --licenses && sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
+```
+
+Then build (the first build takes 10–20 minutes, later ones a few minutes):
+
+```bash
+cd app && npm run build:apk
+```
+
+The APK is written to `app/dist/FocusPi-<version>.apk`. Copy it to your phone and open it,
+or connect the phone with USB debugging on and use `bash scripts/build-apk.sh --install`.
+The script finds JDK 17 and the SDK by itself (or set `JAVA_HOME` / `ANDROID_HOME`).
+This APK is signed with a debug key: fine for your own phone, not for the Play Store.
+
+**Option B: APK via EAS (builds in the cloud)**
 
 ```bash
 cd app && npm install && npx eas build -p android --profile preview
 ```
 
-Install the APK from the link EAS gives you.
-
-**Option B: build locally** (needs Android Studio / SDK, phone connected with USB debugging)
-
-```bash
-cd app && npm install && npx expo run:android
-```
-
-For JS-only changes afterwards: `npm start`, then open the dev build on the phone.
+Install the APK from the link EAS gives you. On the free plan builds can wait in a queue.
 
 ### First launch
 

@@ -6,7 +6,8 @@
   "scripts": {
     "start": "expo start --dev-client",
     "android": "expo run:android",
-    "build:apk": "eas build -p android --profile preview"
+    "build:apk": "bash scripts/build-apk.sh",
+    "build:eas": "eas build -p android --profile preview"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",

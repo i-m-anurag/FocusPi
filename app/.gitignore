@@ -5,3 +5,4 @@ dist/
 /ios/
 *.apk
 npm-debug.log*
+modules/*/android/build/
