@@ -29,7 +29,13 @@ export const lightTheme = {
     },
     success: '#1f7a4d',
     streak: '#ea580c',
-    ringTrack: '#e3e1ec'
+    ringTrack: '#e3e1ec',
+    // Focus heatmap ramp: empty day -> daily goal reached
+    heat0: '#e7e5f0',
+    heat1: '#d3cffa',
+    heat2: '#a7a1f0',
+    heat3: '#6f68dd',
+    heat4: '#4338ca'
   }
 };
 
@@ -61,6 +67,11 @@ export const darkTheme = {
     },
     success: '#6ddba0',
     streak: '#fb923c',
-    ringTrack: '#2a2a36'
+    ringTrack: '#2a2a36',
+    heat0: '#26262f',
+    heat1: '#3a3676',
+    heat2: '#524cb0',
+    heat3: '#7b74e4',
+    heat4: '#c0c1ff'
   }
 };

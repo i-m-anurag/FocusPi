@@ -3,9 +3,10 @@ import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { List, SegmentedButtons, Surface, Text, useTheme } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ContributionGraph } from '../components/ContributionGraph';
 import { InfoTile } from '../components/InfoTile';
 import { useFocus } from '../hooks/FocusContext';
-import { formatMinutes, formatSessionTime, weekdayOf } from '../utils/format';
+import { formatLongDate, formatMinutes, formatSessionTime } from '../utils/format';
 
 const STATUS_ICON = {
   completed: 'check-circle',
@@ -13,47 +14,11 @@ const STATUS_ICON = {
   active: 'timer-sand'
 };
 
-function BarChart({ daily, goal }) {
-  const theme = useTheme();
-  const max = Math.max(goal || 0, 30, ...daily.map((d) => d.minutes));
-  const compact = daily.length > 14;
-  return (
-    <View style={styles.chart}>
-      {goal ? (
-        // Dashed-looking goal line across the chart
-        <View
-          style={[styles.goalLine, { bottom: `${(goal / max) * 100}%`, borderColor: theme.colors.outlineVariant }]}
-        />
-      ) : null}
-      {daily.map((d) => (
-        <View key={d.date} style={styles.barCol}>
-          <View style={styles.barTrack}>
-            <View
-              style={{
-                height: `${Math.max(d.minutes ? 4 : 0, (d.minutes / max) * 100)}%`,
-                backgroundColor: d.counts_for_streak ? theme.colors.primary : theme.colors.outlineVariant,
-                borderRadius: compact ? 2 : 6
-              }}
-            />
-          </View>
-          {!compact ? (
-            <>
-              <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                {d.minutes ? formatMinutes(d.minutes) : ''}
-              </Text>
-              <Text variant="labelSmall">{weekdayOf(d.date)}</Text>
-            </>
-          ) : null}
-        </View>
-      ))}
-    </View>
-  );
-}
-
 export function StatsScreen() {
   const theme = useTheme();
   const { api, online, status, todayMinutes, goalMinutes, goalReached, pending } = useFocus();
-  const [days, setDays] = useState('7');
+  const [days, setDays] = useState('182');
+  const [selectedDay, setSelectedDay] = useState(null);
   const [stats, setStats] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -127,20 +92,36 @@ export function StatsScreen() {
         <Surface elevation={1} style={styles.card}>
           <View style={styles.cardHeader}>
             <Text variant="titleMedium">{formatMinutes(periodMinutes)} focused</Text>
-            <SegmentedButtons
-              density="small"
-              value={days}
-              onValueChange={setDays}
-              style={{ width: 160 }}
-              buttons={[
-                { value: '7', label: 'Week' },
-                { value: '30', label: 'Month' }
-              ]}
-            />
           </View>
-          {stats ? <BarChart daily={stats.daily} goal={streak?.goal_minutes} /> : null}
-          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 6 }}>
-            Filled bars are days that reached the {formatMinutes(streak?.goal_minutes ?? 60)} goal.
+          <SegmentedButtons
+            density="small"
+            value={days}
+            onValueChange={(v) => {
+              setDays(v);
+              setSelectedDay(null);
+            }}
+            style={{ marginBottom: 14 }}
+            buttons={[
+              { value: '182', label: '6 months' },
+              { value: '365', label: '1 year' }
+            ]}
+          />
+          {stats ? (
+            <ContributionGraph
+              daily={stats.daily}
+              goal={streak?.goal_minutes ?? 60}
+              selected={selectedDay}
+              onSelect={(day) => setSelectedDay((cur) => (cur?.date === day.date ? null : day))}
+            />
+          ) : null}
+          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 8 }}>
+            {selectedDay
+              ? `${formatLongDate(new Date(`${selectedDay.date}T00:00:00`))} · ${
+                  selectedDay.minutes ? formatMinutes(selectedDay.minutes) : 'no focus'
+                }${selectedDay.counts_for_streak ? ' · goal reached' : ''}`
+              : `Tap a day to see its minutes. A full square means the ${formatMinutes(
+                  streak?.goal_minutes ?? 60
+                )} goal was reached.`}
           </Text>
         </Surface>
 
@@ -209,13 +190,9 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 12 },
   card: { padding: 16, borderRadius: 20 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  chart: { flexDirection: 'row', height: 160, gap: 4, alignItems: 'flex-end' },
-  goalLine: { position: 'absolute', left: 0, right: 0, borderTopWidth: 1, borderStyle: 'dashed' },
   topicRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
   topicName: { width: 96 },
   topicTrack: { flex: 1 },
   topicValue: { width: 52, textAlign: 'right', fontVariant: ['tabular-nums'] },
-  barCol: { flex: 1, alignItems: 'center', height: '100%', gap: 2 },
-  barTrack: { flex: 1, width: '70%', justifyContent: 'flex-end' },
   listItem: { paddingHorizontal: 0 }
 });

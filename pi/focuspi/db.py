@@ -142,7 +142,9 @@ def daily_goal_minutes():
 def list_topics(include_archived=False):
     sql = """
         SELECT t.*,
-               COALESCE(SUM(CASE WHEN s.status != 'active' THEN s.focused_seconds END), 0) AS focused_seconds,
+               COALESCE(SUM(CASE WHEN s.status = 'completed'
+                                   OR (s.status = 'cancelled' AND s.focused_seconds >= ?)
+                                 THEN s.focused_seconds END), 0) AS focused_seconds,
                COUNT(CASE WHEN s.status = 'completed' THEN 1 END) AS completed_sessions,
                MAX(s.started_at) AS last_used_at
         FROM topics t
@@ -152,7 +154,7 @@ def list_topics(include_archived=False):
         ORDER BY t.archived, last_used_at IS NULL, last_used_at DESC, t.name
     """.format(where="" if include_archived else "WHERE t.archived = 0")
     with _connect() as conn:
-        rows = conn.execute(sql).fetchall()
+        rows = conn.execute(sql, (config.PARTIAL_CREDIT_MINUTES * 60,)).fetchall()
     return [
         {
             "id": r["id"],
@@ -483,14 +485,18 @@ def topic_totals(days=30, today=None):
     with _connect() as conn:
         rows = conn.execute(
             """SELECT COALESCE(NULLIF(label, ''), 'No topic') AS name,
-                      SUM(focused_seconds) AS seconds,
-                      COUNT(*) AS sessions
+                      SUM(CASE WHEN status = 'completed'
+                                 OR (status = 'cancelled' AND focused_seconds >= ?)
+                               THEN focused_seconds ELSE 0 END) AS seconds,
+                      COUNT(CASE WHEN status = 'completed'
+                                   OR (status = 'cancelled' AND focused_seconds >= ?)
+                                 THEN 1 END) AS sessions
                FROM sessions
                WHERE status != 'active' AND local_date >= ?
                GROUP BY name
-               HAVING seconds > 0
+               HAVING seconds >= 60
                ORDER BY seconds DESC""",
-            (start,),
+            (config.PARTIAL_CREDIT_MINUTES * 60, config.PARTIAL_CREDIT_MINUTES * 60, start),
         ).fetchall()
     return [
         {"name": r["name"], "minutes": r["seconds"] // 60, "sessions": r["sessions"]} for r in rows

@@ -149,6 +149,25 @@ def test_topic_totals():
     assert db.topic_totals(today=today)[0] == {"name": "DSA", "minutes": 30, "sessions": 1}
 
 
+def test_topic_totals_ignore_trial_runs(monkeypatch):
+    """A session stopped after a few seconds should not show up as a topic."""
+    monkeypatch.setattr(config, "PARTIAL_CREDIT_MINUTES", 10)
+    today = date(2026, 9, 22)
+    tid = db.add_topic("Pandas")
+    start = ts(today)
+    db.start_session(30, topic_id=tid, now=start)
+    db.stop_session(now=start + 11)  # stopped after 11 seconds
+    db.start_session(30, now=start + 600)  # no topic, also abandoned
+    db.stop_session(now=start + 622)
+    assert db.topic_totals(today=today) == []
+    assert db.list_topics()[0]["focused_minutes"] == 0
+
+    db.start_session(30, topic_id=tid, now=start + 3600)
+    db.complete_due(now=start + 3600 + 1800)
+    assert db.topic_totals(today=today) == [{"name": "Pandas", "minutes": 30, "sessions": 1}]
+    assert db.list_topics()[0]["focused_minutes"] == 30
+
+
 # --- offline sync -----------------------------------------------------------
 def offline_session(client_id, day, minutes=30, status="completed", hour=9):
     start = ts(day, hour)

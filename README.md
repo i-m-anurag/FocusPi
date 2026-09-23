@@ -28,8 +28,8 @@ keeps counting while you travel.
 </p>
 
 **Focus** starts a session for a topic from your list, and shows how far you are through
-today's goal. **Progress** has your streak, minutes per day and per topic, and recent
-sessions. **Settings** holds your topic list, the daily goal, OLED brightness, who may call
+today's goal. **Progress** has your streak, a GitHub-style heatmap of every focus day
+(tap a square for that day's minutes), minutes per topic, and recent sessions. **Settings** holds your topic list, the daily goal, OLED brightness, who may call
 you during focus, and Fresh start.
 
 ## What the OLED shows
