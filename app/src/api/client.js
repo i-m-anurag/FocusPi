@@ -52,6 +52,8 @@ export function createApi({ serverUrl, apiKey }) {
     addTopic: (name) => request('/api/topics', { method: 'POST', body: { name } }),
     updateTopic: (id, patch) => request(`/api/topics/${id}`, { method: 'PATCH', body: patch }),
     deleteTopic: (id) => request(`/api/topics/${id}`, { method: 'DELETE' }),
+    resetData: (includeTopics) =>
+      request('/api/data/reset', { method: 'POST', body: { include_topics: includeTopics } }),
     getSettings: () => request('/api/settings'),
     saveSettings: (patch) => request('/api/settings', { method: 'PUT', body: patch })
   };

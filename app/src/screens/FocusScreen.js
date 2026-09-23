@@ -9,7 +9,6 @@ import {
   IconButton,
   Menu,
   Portal,
-  ProgressBar,
   Surface,
   Text,
   TextInput,
@@ -149,11 +148,16 @@ export function FocusScreen() {
               {formatMinutes(todayMinutes)} / {formatMinutes(goalMinutes)}
             </Text>
           </View>
-          <ProgressBar
-            progress={Math.min(1, goalMinutes ? todayMinutes / goalMinutes : 0)}
-            color={goalReached ? theme.colors.success : theme.colors.primary}
-            style={styles.goalBar}
-          />
+          <View style={[styles.goalTrack, { backgroundColor: theme.colors.ringTrack }]}>
+            <View
+              style={{
+                width: `${Math.min(100, goalMinutes ? (todayMinutes / goalMinutes) * 100 : 0)}%`,
+                height: '100%',
+                borderRadius: 4,
+                backgroundColor: goalReached ? theme.colors.success : theme.colors.primary
+              }}
+            />
+          </View>
           <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
             {goalReached
               ? 'Streak secured for today. Anything more is a bonus.'
@@ -331,7 +335,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 12 },
   goalCard: { padding: 14, borderRadius: 16, gap: 8 },
   goalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  goalBar: { height: 8, borderRadius: 4 },
+  goalTrack: { height: 8, borderRadius: 4, overflow: 'hidden' },
   celebrate: { flexDirection: 'row', alignItems: 'center', borderRadius: 16, paddingLeft: 16 },
   ringWrap: { alignItems: 'center', marginVertical: 4 },
   center: { textAlign: 'center' },

@@ -14,6 +14,26 @@ You pick what you are learning from your own **topic list**, and away from home 
 **runs sessions offline** and uploads them the next time it reaches the Pi, so the streak
 keeps counting while you travel.
 
+<p align="center">
+  <img src="docs/images/clock-running.jpg" alt="FocusPi clock on the OLED" width="45%">
+  <img src="docs/images/pi-wiring.jpg" alt="Raspberry Pi wired to the OLED" width="45%">
+</p>
+
+## The app
+
+<p align="center">
+  <img src="docs/images/app-focus.png" alt="Focus tab" width="30%">
+  <img src="docs/images/app-progress.png" alt="Progress tab" width="30%">
+  <img src="docs/images/app-settings.png" alt="Settings tab" width="30%">
+</p>
+
+**Focus** starts a session for a topic from your list, and shows how far you are through
+today's goal. **Progress** has your streak, minutes per day and per topic, and recent
+sessions. **Settings** holds your topic list, the daily goal, OLED brightness, who may call
+you during focus, and Fresh start.
+
+## What the OLED shows
+
 ![OLED screens](docs/oled-screens.png)
 
 ## Hardware
@@ -174,6 +194,13 @@ from the dropdown on the Focus tab), then pick one when you start a session. The
 shows your minutes per topic. Renaming a topic updates past sessions; removing one keeps the
 history but takes it out of the dropdown.
 
+## Fresh start
+
+**Settings -> Fresh start** deletes every session from the Pi and everything stored on the
+phone, so your streak, history and totals go back to zero. Your daily goal, brightness,
+server URL and API key are kept, and you choose whether to delete your topic list too. It
+needs the Pi to be reachable, and it cannot be undone.
+
 ## Away from the Pi
 
 If the Pi cannot be reached, the app says **On phone** and runs the session itself: Do Not
@@ -226,6 +253,7 @@ All endpoints return JSON. When `FOCUS_API_KEY` is set, send `X-API-Key: <key>` 
 | PATCH | `/api/topics/<id>` | `{"name": "...", "archived": true}` | `{topics}` |
 | DELETE | `/api/topics/<id>` | | `{topics}` |
 | GET / PUT | `/api/settings` | `{"oled_brightness": 120, "daily_goal_minutes": 60}` | `{settings}` |
+| POST | `/api/data/reset` | `{"include_topics": false}` | Fresh start: `{deleted_sessions, deleted_topics, streak}` |
 | GET  | `/api/weather` | | `{weather}` |
 
 Quick test from any computer on your Wi-Fi:

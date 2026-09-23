@@ -14,6 +14,7 @@ Endpoints (all JSON):
   DELETE /api/topics/<id>
   GET    /api/settings               OLED brightness, night dimming, daily goal
   PUT    /api/settings               change any of the above
+  POST   /api/data/reset             fresh start: delete all sessions (+ topics if asked)
   GET    /api/weather                cached weather
 """
 
@@ -194,6 +195,18 @@ def settings_put():
         return jsonify(error="Invalid settings value"), 400
     log.info("Settings updated: %s", settings)
     return jsonify(settings=settings)
+
+
+@app.post("/api/data/reset")
+def data_reset():
+    """Fresh start: wipe the history (and the topic list if asked)."""
+    body = request.get_json(silent=True) or {}
+    result = db.reset_data(include_topics=bool(body.get("include_topics")))
+    log.warning(
+        "Fresh start: deleted %s session(s) and %s topic(s)",
+        result["deleted_sessions"], result["deleted_topics"],
+    )
+    return jsonify(**result, streak=db.streak(), topics=db.list_topics())
 
 
 @app.get("/api/weather")

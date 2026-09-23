@@ -39,8 +39,10 @@ export function SettingsScreen() {
     deleteTopic,
     piSettings,
     savePiSettings,
+    resetAllData,
     pending,
-    syncPending
+    syncPending,
+    busy
   } = useFocus();
 
   const [serverUrl, setServerUrl] = useState('');
@@ -51,6 +53,8 @@ export function SettingsScreen() {
   const [brightness, setBrightness] = useState(255);
   const [topicDialog, setTopicDialog] = useState(null); // {id?, name}
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetTopics, setResetTopics] = useState(false);
 
   useEffect(() => {
     if (!settings) return;
@@ -306,6 +310,27 @@ export function SettingsScreen() {
             </Text>
           )}
         </Surface>
+        {/* --- Fresh start -------------------------------------------------- */}
+        <Surface elevation={1} style={styles.card}>
+          <Text variant="titleMedium">Fresh start</Text>
+          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+            Deletes every focus session on the Pi and anything stored on this phone, so your
+            streak, history and totals start from zero. Your goal, brightness and connection
+            settings are kept. This cannot be undone.
+          </Text>
+          <Button
+            mode="outlined"
+            icon="delete-sweep-outline"
+            textColor={theme.colors.error}
+            disabled={online !== true || busy}
+            onPress={() => {
+              setResetTopics(false);
+              setResetOpen(true);
+            }}
+          >
+            {online === true ? 'Fresh start' : 'Connect to the Pi first'}
+          </Button>
+        </Surface>
       </ScrollView>
 
       <Portal>
@@ -325,6 +350,36 @@ export function SettingsScreen() {
           <Dialog.Actions>
             <Button onPress={() => setTopicDialog(null)}>Cancel</Button>
             <Button onPress={submitTopic}>{topicDialog?.id ? 'Rename' : 'Add'}</Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        <Dialog visible={resetOpen} onDismiss={() => setResetOpen(false)}>
+          <Dialog.Icon icon="alert" color={theme.colors.error} />
+          <Dialog.Title style={{ textAlign: 'center' }}>Delete all your data?</Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium">
+              Every session, your streak and all totals will be deleted from the Pi and this
+              phone. There is no way to get them back.
+            </Text>
+            <List.Item
+              title="Also delete my topic list"
+              description={resetTopics ? 'The learning list will be emptied too' : 'Your topics are kept'}
+              right={() => <Switch value={resetTopics} onValueChange={setResetTopics} />}
+              style={styles.item}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setResetOpen(false)}>Cancel</Button>
+            <Button
+              textColor={theme.colors.error}
+              loading={busy}
+              onPress={() => {
+                setResetOpen(false);
+                resetAllData(resetTopics);
+              }}
+            >
+              Delete everything
+            </Button>
           </Dialog.Actions>
         </Dialog>
 

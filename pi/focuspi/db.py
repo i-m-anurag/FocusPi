@@ -459,6 +459,23 @@ def totals():
     }
 
 
+def reset_data(include_topics=False):
+    """Fresh start: delete every session (and optionally the topic list).
+
+    Settings such as brightness and the daily goal are kept.
+    """
+    with _lock, _connect() as conn:
+        sessions = conn.execute("SELECT COUNT(*) AS n FROM sessions").fetchone()["n"]
+        conn.execute("DELETE FROM sessions")
+        topics = 0
+        if include_topics:
+            topics = conn.execute("SELECT COUNT(*) AS n FROM topics").fetchone()["n"]
+            conn.execute("DELETE FROM topics")
+        else:
+            conn.execute("UPDATE topics SET archived = 0")
+    return {"deleted_sessions": sessions, "deleted_topics": topics}
+
+
 def topic_totals(days=30, today=None):
     """Minutes per topic over the last N days, for the Progress screen."""
     today = today or date.today()

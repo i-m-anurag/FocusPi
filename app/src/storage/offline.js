@@ -99,6 +99,15 @@ export function finishedSession(local, { status, focusedSeconds, endedAt }) {
   };
 }
 
+/** Fresh start: drop everything the phone is holding on to. */
+export async function clearPhoneData() {
+  try {
+    await AsyncStorage.multiRemove([LOCAL_SESSION_KEY, QUEUE_KEY, STATUS_KEY]);
+  } catch {
+    // ignore
+  }
+}
+
 // --- cached Pi data -----------------------------------------------------------
 export function loadCachedTopics() {
   return readJson(TOPICS_KEY, []);

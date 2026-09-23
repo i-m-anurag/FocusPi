@@ -13,6 +13,7 @@ import {
   cacheStatus,
   cacheTopics,
   clearLocalSession,
+  clearPhoneData,
   finishedSession,
   loadCachedStatus,
   loadCachedTopics,
@@ -397,6 +398,36 @@ export function FocusProvider({ children }) {
     }
   }, [api, notify, refresh]);
 
+  /** Fresh start: wipe the history on the Pi and everything held on the phone. */
+  const resetAllData = useCallback(async (includeTopics = false) => {
+    if (!api) return false;
+    setBusy(true);
+    try {
+      const res = await api.resetData(includeTopics);
+      if (isDndSupported) nativeStop(false);
+      localRef.current = null;
+      pendingStopRef.current = null;
+      await clearPhoneData();
+      setPending([]);
+      setSession(null);
+      setCelebration(null);
+      if (res.topics) {
+        setTopics(res.topics);
+        cacheTopics(res.topics);
+      }
+      await refresh();
+      notify(
+        `Fresh start: ${res.deleted_sessions} session${res.deleted_sessions === 1 ? '' : 's'} deleted`
+      );
+      return true;
+    } catch (e) {
+      notify(e.status === 0 ? 'The Pi is offline, nothing was deleted' : e.message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, [api, notify, refresh]);
+
   // Today's minutes including anything still waiting to sync.
   const pendingMinutes = pendingMinutesFor(pending);
   const streak = status?.streak;
@@ -423,6 +454,7 @@ export function FocusProvider({ children }) {
     deleteTopic,
     piSettings: status?.settings,
     savePiSettings,
+    resetAllData,
     pending,
     pendingMinutes,
     syncPending,

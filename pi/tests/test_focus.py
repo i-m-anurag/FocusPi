@@ -250,6 +250,27 @@ def test_api_sync_and_settings(client):
     assert client.get("/api/settings").json["settings"]["oled_brightness"] == 120
 
 
+def test_reset_data(client):
+    today = date.today()
+    tid = db.add_topic("DSA")
+    start = ts(today)
+    db.start_session(60, topic_id=tid, now=start)
+    db.complete_due(now=start + 3600)
+    db.update_settings({"oled_brightness": 90})
+    assert db.streak(today=today)["current"] == 1
+
+    r = client.post("/api/data/reset", json={})
+    assert r.json["deleted_sessions"] == 1 and r.json["deleted_topics"] == 0
+    assert db.history() == []
+    assert db.streak(today=today)["current"] == 0
+    assert db.totals()["focused_minutes"] == 0
+    assert [t["name"] for t in db.list_topics()] == ["DSA"]  # topics kept by default
+    assert db.get_settings()["oled_brightness"] == 90  # settings kept
+
+    r = client.post("/api/data/reset", json={"include_topics": True})
+    assert r.json["deleted_topics"] == 1 and db.list_topics() == []
+
+
 def test_api_key(client, monkeypatch):
     monkeypatch.setattr(config, "API_KEY", "secret")
     assert client.get("/api/health").status_code == 200
