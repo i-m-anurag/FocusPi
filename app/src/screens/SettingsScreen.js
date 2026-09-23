@@ -1,19 +1,56 @@
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Button, HelperText, List, SegmentedButtons, Surface, Switch, Text, TextInput, useTheme } from 'react-native-paper';
+import Slider from '@react-native-community/slider';
+import {
+  Button,
+  Chip,
+  Dialog,
+  HelperText,
+  IconButton,
+  List,
+  Portal,
+  SegmentedButtons,
+  Surface,
+  Switch,
+  Text,
+  TextInput,
+  useTheme
+} from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { openExactAlarmSettings, openPolicyAccessSettings } from '../../modules/focus-dnd';
 import { createApi } from '../api/client';
 import { useFocus } from '../hooks/FocusContext';
+import { formatMinutes } from '../utils/format';
+
+const GOAL_PRESETS = [30, 45, 60, 90, 120];
 
 export function SettingsScreen() {
   const theme = useTheme();
-  const { settings, updateSettings, permissions, refresh, notify } = useFocus();
+  const {
+    settings,
+    updateSettings,
+    permissions,
+    refresh,
+    notify,
+    online,
+    topics,
+    addTopic,
+    renameTopic,
+    deleteTopic,
+    piSettings,
+    savePiSettings,
+    pending,
+    syncPending
+  } = useFocus();
+
   const [serverUrl, setServerUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [defaultMinutes, setDefaultMinutes] = useState('30');
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const [brightness, setBrightness] = useState(255);
+  const [topicDialog, setTopicDialog] = useState(null); // {id?, name}
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   useEffect(() => {
     if (!settings) return;
@@ -22,7 +59,13 @@ export function SettingsScreen() {
     setDefaultMinutes(String(settings.defaultMinutes));
   }, [settings]);
 
+  useEffect(() => {
+    if (piSettings?.oled_brightness != null) setBrightness(piSettings.oled_brightness);
+  }, [piSettings?.oled_brightness]);
+
   if (!settings) return null;
+
+  const goal = piSettings?.daily_goal_minutes ?? 60;
 
   const saveServer = async () => {
     const mins = Math.min(240, Math.max(1, parseInt(defaultMinutes, 10) || 30));
@@ -35,7 +78,6 @@ export function SettingsScreen() {
     setTesting(true);
     setTestResult(null);
     try {
-      // /api/status needs the key, so this checks the URL and the key together.
       const data = await createApi({ serverUrl, apiKey }).status();
       const drift = Math.round(data.server_time - Date.now() / 1000);
       setTestResult({ ok: true, text: `Connected. Pi clock is ${Math.abs(drift) <= 2 ? 'in sync' : `${drift}s off`}.` });
@@ -46,11 +88,116 @@ export function SettingsScreen() {
     }
   };
 
+  const submitTopic = async () => {
+    const dialog = topicDialog;
+    setTopicDialog(null);
+    const name = (dialog?.name || '').trim();
+    if (!name) return;
+    if (dialog.id) await renameTopic(dialog.id, name);
+    else await addTopic(name);
+  };
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text variant="headlineMedium" style={styles.bold}>Settings</Text>
 
+        {/* --- Learning list ------------------------------------------------- */}
+        <Surface elevation={1} style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text variant="titleMedium">What I'm learning</Text>
+            <Button icon="plus" onPress={() => setTopicDialog({ name: '' })} disabled={online === false}>
+              Add
+            </Button>
+          </View>
+          {topics.length === 0 ? (
+            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+              No topics yet. Add the subjects you are learning and pick one when you start a session.
+            </Text>
+          ) : (
+            topics.map((t) => (
+              <List.Item
+                key={t.id}
+                title={t.name}
+                description={t.focused_minutes ? `${formatMinutes(t.focused_minutes)} focused · ${t.completed_sessions} sessions` : 'Not started yet'}
+                left={(props) => <List.Icon {...props} icon="book-open-variant" />}
+                right={() => (
+                  <View style={styles.rowRight}>
+                    <IconButton icon="pencil" size={18} onPress={() => setTopicDialog({ id: t.id, name: t.name })} />
+                    <IconButton icon="delete-outline" size={18} onPress={() => setConfirmDelete(t)} />
+                  </View>
+                )}
+                style={styles.item}
+              />
+            ))
+          )}
+          {online === false ? (
+            <HelperText type="info" visible>
+              Your list is stored on the Pi. Connect to it to make changes.
+            </HelperText>
+          ) : null}
+        </Surface>
+
+        {/* --- Daily goal ----------------------------------------------------- */}
+        <Surface elevation={1} style={styles.card}>
+          <Text variant="titleMedium">Daily goal</Text>
+          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+            Focus this many minutes in a day and the day counts towards your streak. Sessions add
+            up across the day.
+          </Text>
+          <View style={styles.chips}>
+            {GOAL_PRESETS.map((m) => (
+              <Chip
+                key={m}
+                selected={goal === m}
+                showSelectedOverlay
+                disabled={online === false}
+                onPress={() => savePiSettings({ daily_goal_minutes: m })}
+              >
+                {formatMinutes(m)}
+              </Chip>
+            ))}
+          </View>
+        </Surface>
+
+        {/* --- OLED ------------------------------------------------------------ */}
+        <Surface elevation={1} style={styles.card}>
+          <Text variant="titleMedium">OLED screen</Text>
+          <View style={styles.brightnessRow}>
+            <IconButton icon="brightness-5" size={18} disabled />
+            <Slider
+              style={styles.slider}
+              minimumValue={1}
+              maximumValue={255}
+              step={1}
+              value={brightness}
+              disabled={online === false}
+              onValueChange={setBrightness}
+              onSlidingComplete={(v) => savePiSettings({ oled_brightness: Math.round(v) })}
+              minimumTrackTintColor={theme.colors.primary}
+              maximumTrackTintColor={theme.colors.surfaceVariant}
+              thumbTintColor={theme.colors.primary}
+            />
+            <IconButton icon="brightness-7" size={22} disabled />
+          </View>
+          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, textAlign: 'center' }}>
+            Brightness {Math.round((brightness / 255) * 100)}%
+          </Text>
+          <List.Item
+            title="Dim at night"
+            description="Lower the brightness between 23:00 and 06:00"
+            right={() => (
+              <Switch
+                value={Boolean(piSettings?.oled_night_dim)}
+                disabled={online === false}
+                onValueChange={(v) => savePiSettings({ oled_night_dim: v })}
+              />
+            )}
+            style={styles.item}
+          />
+        </Surface>
+
+        {/* --- Raspberry Pi ----------------------------------------------------- */}
         <Surface elevation={1} style={styles.card}>
           <Text variant="titleMedium">Raspberry Pi</Text>
           <TextInput
@@ -88,8 +235,18 @@ export function SettingsScreen() {
             <Button mode="outlined" onPress={testConnection} loading={testing}>Test</Button>
             <Button mode="contained" onPress={saveServer}>Save</Button>
           </View>
+          {pending.length > 0 ? (
+            <List.Item
+              title={`${pending.length} session${pending.length === 1 ? '' : 's'} waiting to sync`}
+              description="Recorded on your phone while the Pi was unreachable"
+              left={(p) => <List.Icon {...p} icon="cloud-upload-outline" />}
+              right={() => <Button onPress={syncPending}>Sync now</Button>}
+              style={styles.item}
+            />
+          ) : null}
         </Surface>
 
+        {/* --- DND -------------------------------------------------------------- */}
         <Surface elevation={1} style={styles.card}>
           <Text variant="titleMedium">During focus, who can call?</Text>
           <SegmentedButtons
@@ -122,6 +279,7 @@ export function SettingsScreen() {
           </HelperText>
         </Surface>
 
+        {/* --- Permissions ------------------------------------------------------- */}
         <Surface elevation={1} style={styles.card}>
           <Text variant="titleMedium">Permissions</Text>
           {permissions.dndSupported ? (
@@ -149,6 +307,50 @@ export function SettingsScreen() {
           )}
         </Surface>
       </ScrollView>
+
+      <Portal>
+        <Dialog visible={topicDialog !== null} onDismiss={() => setTopicDialog(null)}>
+          <Dialog.Title>{topicDialog?.id ? 'Rename topic' : 'New learning topic'}</Dialog.Title>
+          <Dialog.Content>
+            <TextInput
+              mode="outlined"
+              label="Name"
+              placeholder="e.g. System design"
+              value={topicDialog?.name ?? ''}
+              onChangeText={(name) => setTopicDialog((d) => ({ ...d, name }))}
+              maxLength={60}
+              autoFocus
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setTopicDialog(null)}>Cancel</Button>
+            <Button onPress={submitTopic}>{topicDialog?.id ? 'Rename' : 'Add'}</Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        <Dialog visible={confirmDelete !== null} onDismiss={() => setConfirmDelete(null)}>
+          <Dialog.Title>Remove "{confirmDelete?.name}"?</Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium">
+              It disappears from the list you pick from. Past sessions keep the name, and your
+              streak and totals are unchanged.
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setConfirmDelete(null)}>Cancel</Button>
+            <Button
+              textColor={theme.colors.error}
+              onPress={() => {
+                const t = confirmDelete;
+                setConfirmDelete(null);
+                deleteTopic(t.id);
+              }}
+            >
+              Remove
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </SafeAreaView>
   );
 }
@@ -157,6 +359,11 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 32, gap: 12 },
   bold: { fontWeight: '700' },
   card: { padding: 16, borderRadius: 20, gap: 12 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   buttons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
-  item: { paddingHorizontal: 0 }
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  item: { paddingHorizontal: 0 },
+  rowRight: { flexDirection: 'row', alignItems: 'center' },
+  brightnessRow: { flexDirection: 'row', alignItems: 'center' },
+  slider: { flex: 1, height: 40 }
 });

@@ -60,8 +60,8 @@ FocusPi uses a standard 4-pin I2C OLED module.
 
 1. **Clock** (idle): date and weather on top, big time with seconds, and a bottom line
    that rotates through weather details, humidity/wind, and streak + minutes today.
-   The layout shifts by 1px every minute to reduce OLED burn-in, and it dims at night
-   (23:00 to 06:00 by default).
+   The layout shifts by 1px every minute to reduce OLED burn-in. Brightness and night
+   dimming (23:00 to 06:00) are set from the app's Settings tab.
 2. **Focus**: `FOCUS` badge, your label, the wall clock, a big countdown and a progress bar.
 3. **Session complete** (20 s after finishing): minutes added and your new streak.
 4. **Focus stopped** (5 s after stopping early).

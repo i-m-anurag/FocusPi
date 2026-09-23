@@ -13,12 +13,18 @@ const STATUS_ICON = {
   active: 'timer-sand'
 };
 
-function BarChart({ daily }) {
+function BarChart({ daily, goal }) {
   const theme = useTheme();
-  const max = Math.max(30, ...daily.map((d) => d.minutes));
+  const max = Math.max(goal || 0, 30, ...daily.map((d) => d.minutes));
   const compact = daily.length > 14;
   return (
     <View style={styles.chart}>
+      {goal ? (
+        // Dashed-looking goal line across the chart
+        <View
+          style={[styles.goalLine, { bottom: `${(goal / max) * 100}%`, borderColor: theme.colors.outlineVariant }]}
+        />
+      ) : null}
       {daily.map((d) => (
         <View key={d.date} style={styles.barCol}>
           <View style={styles.barTrack}>
@@ -46,7 +52,7 @@ function BarChart({ daily }) {
 
 export function StatsScreen() {
   const theme = useTheme();
-  const { api, online, status } = useFocus();
+  const { api, online, status, todayMinutes, goalMinutes, goalReached, pending } = useFocus();
   const [days, setDays] = useState('7');
   const [stats, setStats] = useState(null);
   const [sessions, setSessions] = useState([]);
@@ -97,8 +103,15 @@ export function StatsScreen() {
               {streak?.current ?? 0} day{streak?.current === 1 ? '' : 's'}
             </Text>
             <Text variant="bodyMedium" style={{ color: theme.colors.onPrimaryContainer }}>
-              {streak?.today_done ? 'Today counted. Keep it going!' : 'Focus today to keep your streak'}
+              {goalReached
+                ? 'Today counted. Keep it going!'
+                : `${formatMinutes(todayMinutes)} of ${formatMinutes(goalMinutes)} done today`}
             </Text>
+            {pending.length > 0 ? (
+              <Text variant="bodySmall" style={{ color: theme.colors.onPrimaryContainer }}>
+                Includes {pending.length} session{pending.length === 1 ? '' : 's'} waiting to sync
+              </Text>
+            ) : null}
           </View>
         </Surface>
 
@@ -125,7 +138,39 @@ export function StatsScreen() {
               ]}
             />
           </View>
-          {stats ? <BarChart daily={stats.daily} /> : null}
+          {stats ? <BarChart daily={stats.daily} goal={streak?.goal_minutes} /> : null}
+          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 6 }}>
+            Filled bars are days that reached the {formatMinutes(streak?.goal_minutes ?? 60)} goal.
+          </Text>
+        </Surface>
+
+        <Surface elevation={1} style={styles.card}>
+          <Text variant="titleMedium" style={{ marginBottom: 8 }}>By topic</Text>
+          {(stats?.topics || []).length === 0 ? (
+            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+              Nothing in this period yet.
+            </Text>
+          ) : (
+            stats.topics.map((t) => {
+              const top = stats.topics[0].minutes || 1;
+              return (
+                <View key={t.name} style={styles.topicRow}>
+                  <Text variant="bodyMedium" numberOfLines={1} style={styles.topicName}>{t.name}</Text>
+                  <View style={styles.topicTrack}>
+                    <View
+                      style={{
+                        width: `${Math.max(3, (t.minutes / top) * 100)}%`,
+                        height: 10,
+                        borderRadius: 5,
+                        backgroundColor: theme.colors.primary
+                      }}
+                    />
+                  </View>
+                  <Text variant="bodySmall" style={styles.topicValue}>{formatMinutes(t.minutes)}</Text>
+                </View>
+              );
+            })
+          )}
         </Surface>
 
         <Surface elevation={1} style={styles.card}>
@@ -165,6 +210,11 @@ const styles = StyleSheet.create({
   card: { padding: 16, borderRadius: 20 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   chart: { flexDirection: 'row', height: 160, gap: 4, alignItems: 'flex-end' },
+  goalLine: { position: 'absolute', left: 0, right: 0, borderTopWidth: 1, borderStyle: 'dashed' },
+  topicRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+  topicName: { width: 96 },
+  topicTrack: { flex: 1 },
+  topicValue: { width: 52, textAlign: 'right', fontVariant: ['tabular-nums'] },
   barCol: { flex: 1, alignItems: 'center', height: '100%', gap: 2 },
   barTrack: { flex: 1, width: '70%', justifyContent: 'flex-end' },
   listItem: { paddingHorizontal: 0 }

@@ -10,7 +10,8 @@ export const DEFAULT_SETTINGS = {
   callers: 'any',
   repeatCallers: true,
   allowAlarms: true,
-  lastLabel: ''
+  // Last chosen learning topic (an id from the Pi's list)
+  lastTopicId: null
 };
 
 export async function loadSettings() {

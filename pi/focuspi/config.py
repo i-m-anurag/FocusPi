@@ -33,8 +33,9 @@ DB_PATH = Path(_get("FOCUS_DB_PATH", str(BASE_DIR / "data" / "focus.db")))
 # --- Focus / streak rules ---------------------------------------------------
 DEFAULT_MINUTES = int(_get("FOCUS_DEFAULT_MINUTES", "30"))
 MAX_MINUTES = int(_get("FOCUS_MAX_MINUTES", "240"))
-# A day counts towards the streak once completed focus minutes reach this value.
-STREAK_MIN_MINUTES = int(_get("FOCUS_STREAK_MIN_MINUTES", "1"))
+# Daily goal: a day counts towards the streak once focused minutes reach this
+# value. Only the initial value - the app can change it (stored in the database).
+STREAK_MIN_MINUTES = int(_get("FOCUS_STREAK_MIN_MINUTES", "60"))
 # A cancelled session still counts its focused minutes if at least this long.
 PARTIAL_CREDIT_MINUTES = int(_get("FOCUS_PARTIAL_CREDIT_MINUTES", "10"))
 
@@ -52,7 +53,9 @@ I2C_ADDR = int(_get("FOCUS_I2C_ADDR", "0x3C"), 16)
 OLED_DRIVER = _get("FOCUS_OLED_DRIVER", "sh1106").lower()
 OLED_ROTATE = int(_get("FOCUS_OLED_ROTATE", "0"))  # 0..3, multiples of 90 degrees
 OLED_CONTRAST = int(_get("FOCUS_OLED_CONTRAST", "255"))
-# Dim the screen between these hours (24h clock). Set equal values to disable.
+# Dim the screen between these hours (24h clock). The app can turn dimming
+# on and off; these hours stay configured here.
+NIGHT_DIM = _get("FOCUS_NIGHT_DIM", "1") == "1"
 NIGHT_START_HOUR = int(_get("FOCUS_NIGHT_START_HOUR", "23"))
 NIGHT_END_HOUR = int(_get("FOCUS_NIGHT_END_HOUR", "6"))
 USE_24H = _get("FOCUS_24H", "1") == "1"

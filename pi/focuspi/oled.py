@@ -185,8 +185,10 @@ def bottom_lines(status, online):
         if w.get("humidity") is not None:
             lines.append(f"Hum {w['humidity']}%  Wind {w['wind_kmh']}km/h")
     streak = status.get("streak") or {}
-    today = status.get("today") or {}
-    lines.append(f"@streak {streak.get('current', 0)}d   Today {today.get('minutes', 0)}m")
+    done = streak.get("today_minutes", 0)
+    goal = streak.get("goal_minutes", 0)
+    progress = f"{done}/{goal}m today" if goal else f"{done}m today"
+    lines.append(f"@streak {streak.get('current', 0)}d   {progress}")
     return lines
 
 
@@ -265,15 +267,34 @@ def draw_focus_screen(draw, now, focus, remaining, online):
         draw.ellipse((W - 8, 14, W - 3, 19), outline="white")
 
 
+def draw_goal_bar(draw, y, done, goal):
+    """Thin bar showing progress towards the daily goal."""
+    if not goal:
+        return
+    draw.rectangle((0, y, W - 1, y + 5), outline="white")
+    filled = int((W - 4) * min(1.0, done / goal))
+    if filled > 0:
+        draw.rectangle((2, y + 2, 1 + filled, y + 3), fill="white")
+
+
 def draw_done_screen(draw, session, streak):
     # Check mark in a circle
-    draw.ellipse((2, 6, 30, 34), outline="white", width=2)
-    draw.line((9, 20, 14, 26, 24, 13), fill="white", width=3)
-    draw.text((36, 6), "Session", fill="white", font=FONT_MD)
-    draw.text((36, 20), "complete!", fill="white", font=FONT_MD)
+    draw.ellipse((2, 2, 26, 26), outline="white", width=2)
+    draw.line((8, 14, 12, 20, 21, 8), fill="white", width=3)
+    draw.text((32, 1), "Session", fill="white", font=FONT_MD)
+    draw.text((32, 14), "complete!", fill="white", font=FONT_MD)
+
     minutes = session.get("planned_minutes", 0)
-    draw_centered(draw, 38, f"+{minutes} min focused", FONT_SM)
-    rest = f"Streak {streak.get('current', 0)} day{'s' if streak.get('current', 0) != 1 else ''}"
+    done = streak.get("today_minutes", 0)
+    goal = streak.get("goal_minutes", 0)
+    draw_centered(draw, 30, f"+{minutes}m today {done}/{goal}m" if goal else f"+{minutes} min focused", FONT_SM)
+    draw_goal_bar(draw, 43, done, goal)
+
+    if streak.get("today_done"):
+        days = streak.get("current", 0)
+        rest = f"Streak {days} day{'' if days == 1 else 's'}"
+    else:
+        rest = f"{streak.get('remaining_minutes', 0)} min to goal"
     total = 11 + text_w(draw, rest, FONT_SM)
     lx = (W - total) // 2
     draw_flame(draw, lx, 52)
@@ -334,7 +355,11 @@ def render_loop(device):
         elapsed = time.monotonic() - fetched if fetched else 0
 
         focus_running = bool(status and status.get("focus"))
-        want = 20 if is_night(now.hour) and not focus_running else config.OLED_CONTRAST
+        # Brightness comes from the app (stored on the Pi); fall back to the env value.
+        settings = (status or {}).get("settings") or {}
+        level = int(settings.get("oled_brightness", config.OLED_CONTRAST))
+        dim_at_night = settings.get("oled_night_dim", config.NIGHT_DIM)
+        want = min(20, level) if dim_at_night and is_night(now.hour) and not focus_running else level
         if want != contrast:
             device.contrast(want)
             contrast = want
@@ -374,8 +399,10 @@ def preview(out_dir):
         "server_time": 1000,
         "weather": {"temperature": 29, "text": "Partly cloudy", "icon": "partly", "high": 32,
                     "low": 25, "humidity": 70, "wind_kmh": 9},
-        "streak": {"current": 6},
+        "streak": {"current": 6, "today_minutes": 45, "goal_minutes": 60,
+                   "remaining_minutes": 15, "today_done": False},
         "today": {"minutes": 45},
+        "settings": {"oled_brightness": 255, "oled_night_dim": True},
     }
     focus = {"label": "DSA practice", "remaining_seconds": 1499, "total_seconds": 1800,
              "planned_minutes": 30}

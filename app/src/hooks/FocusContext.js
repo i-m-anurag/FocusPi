@@ -9,6 +9,21 @@ import {
   stopFocus as nativeStop
 } from '../../modules/focus-dnd';
 import { createApi } from '../api/client';
+import {
+  cacheStatus,
+  cacheTopics,
+  clearLocalSession,
+  finishedSession,
+  loadCachedStatus,
+  loadCachedTopics,
+  loadLocalSession,
+  loadQueue,
+  newClientId,
+  pendingMinutesFor,
+  queueSession,
+  removeFromQueue,
+  saveLocalSession
+} from '../storage/offline';
 import { loadSettings, saveSettings } from '../storage/settings';
 
 const POLL_MS = 5000;
@@ -26,20 +41,26 @@ function readPermissions() {
   };
 }
 
+const nowSeconds = () => Math.floor(Date.now() / 1000);
+
 /**
  * Single source of truth for the app.
  *
- * The Raspberry Pi owns the session (it starts it, times it, records it and
- * drives the OLED). The phone mirrors it: it shows the countdown and keeps
- * Android DND in "calls only" mode until the session's end time. Native code
- * turns DND off on time even if this app is closed.
+ * Normally the Raspberry Pi owns the session: it times it, records it and
+ * drives the OLED, while the phone mirrors it and switches DND to calls only.
+ *
+ * Away from the Pi the phone takes over: it runs the session itself, stores it
+ * on the phone, and uploads it the next time the Pi is reachable, so the streak
+ * still counts. Android ends DND on time either way, even if the app is killed.
  */
 export function FocusProvider({ children }) {
   const [settings, setSettings] = useState(null);
   const [status, setStatus] = useState(null);
   const [online, setOnline] = useState(null);
   const [lastError, setLastError] = useState(null);
-  const [session, setSession] = useState(null); // { id, label, endAtMs, totalSeconds }
+  const [session, setSession] = useState(null); // { id, label, endAtMs, totalSeconds, offline }
+  const [topics, setTopics] = useState([]);
+  const [pending, setPending] = useState([]); // sessions waiting to reach the Pi
   const [permissions, setPermissions] = useState(readPermissions);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
@@ -48,6 +69,7 @@ export function FocusProvider({ children }) {
 
   const sessionRef = useRef(null);
   const settingsRef = useRef(null);
+  const localRef = useRef(null); // the offline session record, when we own the timer
   // Session the user stopped on the phone while the Pi was unreachable.
   const pendingStopRef = useRef(null);
   sessionRef.current = session;
@@ -84,13 +106,49 @@ export function FocusProvider({ children }) {
     if (st.active) nativeStop(st.endAtMs <= Date.now() + 2000);
   }, []);
 
+  // ---- offline bookkeeping -----------------------------------------------------
+  const finishLocalSession = useCallback(async (statusName, focusedSeconds) => {
+    const local = localRef.current;
+    if (!local) return;
+    localRef.current = null;
+    await clearLocalSession();
+    const record = finishedSession(local, {
+      status: statusName,
+      focusedSeconds,
+      endedAt: nowSeconds()
+    });
+    setPending(await queueSession(record));
+    setSession(null);
+    if (statusName === 'completed') {
+      setCelebration({ planned_minutes: local.planned_minutes, offline: true });
+    }
+  }, []);
+
+  const syncPending = useCallback(async () => {
+    if (!api) return;
+    const queue = await loadQueue();
+    if (queue.length === 0) return;
+    try {
+      const res = await api.sync(queue);
+      setPending(await removeFromQueue(queue.map((s) => s.client_id)));
+      if (res.imported > 0) {
+        notify(`Synced ${res.imported} offline session${res.imported === 1 ? '' : 's'} to the Pi`);
+      }
+    } catch {
+      // Still offline: the queue stays on the phone for the next attempt.
+    }
+  }, [api, notify]);
+
   // ---- apply the Pi's view of the world --------------------------------------
   const applyServerFocus = useCallback((focus, lastSession) => {
+    // While the phone owns an offline session, the Pi's view does not apply.
+    if (localRef.current) return;
+
     const prev = sessionRef.current;
     if (focus && focus.remaining_seconds > 0) {
       const endAtMs = Date.now() + focus.remaining_seconds * 1000;
-      const pending = pendingStopRef.current;
-      if (pending && (pending.id === focus.id || Math.abs(pending.endAtMs - endAtMs) < 10000)) {
+      const pendingStop = pendingStopRef.current;
+      if (pendingStop && (pendingStop.id === focus.id || Math.abs(pendingStop.endAtMs - endAtMs) < 10000)) {
         // Don't turn DND back on; finish the stop on the Pi instead.
         api?.stop().then(() => { pendingStopRef.current = null; }).catch(() => {});
         return;
@@ -99,7 +157,8 @@ export function FocusProvider({ children }) {
         id: focus.id,
         label: focus.label || '',
         endAtMs,
-        totalSeconds: focus.total_seconds
+        totalSeconds: focus.total_seconds,
+        offline: false
       };
       // Only re-set when something meaningful changed, to avoid jitter.
       if (!prev || prev.id !== next.id || Math.abs(prev.endAtMs - endAtMs) > 2000 || !prev.totalSeconds) {
@@ -123,28 +182,52 @@ export function FocusProvider({ children }) {
       setStatus(data);
       setOnline(true);
       setLastError(null);
+      if (data.topics) {
+        setTopics(data.topics);
+        cacheTopics(data.topics);
+      }
+      cacheStatus(data);
       applyServerFocus(data.focus, data.last_session);
+      syncPending();
       return data;
     } catch (e) {
       setOnline(false);
       setLastError(e.message);
-      // Keep counting locally; if the phone's own timer ran out, release DND.
+      // Keep counting locally; if the phone's own timer ran out, wrap it up.
       const cur = sessionRef.current;
-      if (cur && cur.endAtMs <= Date.now()) {
+      if (cur && cur.endAtMs <= Date.now() && !localRef.current) {
         setSession(null);
         releaseNativeFocus();
       }
       return null;
     }
-  }, [api, applyServerFocus, releaseNativeFocus]);
+  }, [api, applyServerFocus, releaseNativeFocus, syncPending]);
 
   // ---- boot ----------------------------------------------------------------------
   useEffect(() => {
     loadSettings().then(setSettings);
-    // Show a running session immediately, even before the Pi answers.
+    loadCachedTopics().then(setTopics);
+    loadQueue().then(setPending);
+    loadCachedStatus().then((cached) => {
+      if (cached) setStatus((current) => current ?? cached);
+    });
+
+    // Restore a session that was running when the app was last closed.
+    loadLocalSession().then((local) => {
+      if (!local) return;
+      localRef.current = local;
+      setSession({
+        id: null,
+        label: local.label,
+        endAtMs: local.ends_at * 1000,
+        totalSeconds: local.planned_minutes * 60,
+        offline: true
+      });
+    });
+
     const st = getFocusState();
     if (st.active && st.endAtMs > Date.now()) {
-      setSession({ id: null, label: st.label, endAtMs: st.endAtMs, totalSeconds: null });
+      setSession((cur) => cur ?? { id: null, label: st.label, endAtMs: st.endAtMs, totalSeconds: null });
     }
     if (Platform.OS === 'android' && Platform.Version >= 33) {
       PermissionsAndroid.request('android.permission.POST_NOTIFICATIONS').catch(() => {});
@@ -172,21 +255,42 @@ export function FocusProvider({ children }) {
     return () => clearInterval(t);
   }, []);
 
-  // When the local countdown hits zero, ask the Pi to confirm quickly.
   const remainingSeconds = session ? Math.max(0, (session.endAtMs - now) / 1000) : 0;
   const timerDone = Boolean(session) && remainingSeconds <= 0;
+
   useEffect(() => {
     if (!timerDone) return undefined;
+    if (localRef.current) {
+      // We own this one: record it and queue it for the Pi.
+      finishLocalSession('completed', localRef.current.planned_minutes * 60);
+      return undefined;
+    }
     const t = setTimeout(refresh, 1500);
     return () => clearTimeout(t);
-  }, [timerDone, refresh]);
+  }, [timerDone, refresh, finishLocalSession]);
 
   // ---- actions -----------------------------------------------------------------
-  const start = useCallback(async (minutes, label) => {
+  const startOffline = useCallback(async (minutes, label, topicId) => {
+    const local = {
+      client_id: newClientId(),
+      label: label || '',
+      topic_id: topicId ?? null,
+      planned_minutes: minutes,
+      started_at: nowSeconds(),
+      ends_at: nowSeconds() + minutes * 60
+    };
+    localRef.current = local;
+    await saveLocalSession(local);
+    const endAtMs = local.ends_at * 1000;
+    setSession({ id: null, label: local.label, endAtMs, totalSeconds: minutes * 60, offline: true });
+    ensureNativeFocus(endAtMs, local.label);
+  }, [ensureNativeFocus]);
+
+  const start = useCallback(async (minutes, { label = '', topicId = null } = {}) => {
     if (!api) return;
     setBusy(true);
     try {
-      const res = await api.start(minutes, label);
+      const res = await api.start({ minutes, label, topic_id: topicId, client_id: newClientId() });
       setCelebration(null);
       applyServerFocus(res.focus);
       if (isDndSupported && !hasPolicyAccess()) {
@@ -197,15 +301,27 @@ export function FocusProvider({ children }) {
       if (e.status === 409 && e.payload?.focus) {
         applyServerFocus(e.payload.focus);
         notify('A focus session is already running');
+      } else if (e.status === 0) {
+        // Pi unreachable: run the session on the phone and sync it later.
+        setCelebration(null);
+        await startOffline(minutes, label, topicId);
+        notify('Pi offline: this session is saved on your phone and will sync later');
       } else {
         notify(e.message);
       }
     } finally {
       setBusy(false);
     }
-  }, [api, applyServerFocus, notify, refresh]);
+  }, [api, applyServerFocus, notify, refresh, startOffline]);
 
   const stop = useCallback(async () => {
+    const local = localRef.current;
+    if (local) {
+      if (isDndSupported) nativeStop(false);
+      await finishLocalSession('cancelled', nowSeconds() - local.started_at);
+      syncPending();
+      return;
+    }
     if (!api) return;
     setBusy(true);
     const stopping = sessionRef.current;
@@ -224,7 +340,7 @@ export function FocusProvider({ children }) {
     } finally {
       setBusy(false);
     }
-  }, [api, notify, refresh]);
+  }, [api, finishLocalSession, notify, refresh, syncPending]);
 
   const updateSettings = useCallback(async (patch) => {
     const next = { ...settingsRef.current, ...patch };
@@ -232,6 +348,60 @@ export function FocusProvider({ children }) {
     await saveSettings(next);
     return next;
   }, []);
+
+  // ---- learning list + Pi settings ----------------------------------------------
+  const withTopics = useCallback(async (action, failureMessage) => {
+    if (!api) return null;
+    try {
+      const res = await action();
+      if (res?.topics) {
+        setTopics(res.topics);
+        cacheTopics(res.topics);
+      }
+      return res ?? {};
+    } catch (e) {
+      notify(e.status === 0 ? `${failureMessage}: the Pi is offline` : e.message);
+      return null;
+    }
+  }, [api, notify]);
+
+  /** Returns the new topic's id, or null if it could not be added. */
+  const addTopic = useCallback(
+    async (name) => {
+      const res = await withTopics(() => api.addTopic(name), 'Could not add');
+      return res?.id ?? null;
+    },
+    [api, withTopics]
+  );
+  const renameTopic = useCallback(
+    async (id, name) => Boolean(await withTopics(() => api.updateTopic(id, { name }), 'Could not rename')),
+    [api, withTopics]
+  );
+  const deleteTopic = useCallback(
+    async (id) => Boolean(await withTopics(() => api.deleteTopic(id), 'Could not remove')),
+    [api, withTopics]
+  );
+
+  const savePiSettings = useCallback(async (patch) => {
+    if (!api) return false;
+    // Show the change straight away, then confirm with the Pi.
+    setStatus((cur) => (cur ? { ...cur, settings: { ...cur.settings, ...patch } } : cur));
+    try {
+      const res = await api.saveSettings(patch);
+      setStatus((cur) => (cur ? { ...cur, settings: res.settings } : cur));
+      return true;
+    } catch (e) {
+      notify(e.status === 0 ? 'The Pi is offline, setting not saved' : e.message);
+      refresh();
+      return false;
+    }
+  }, [api, notify, refresh]);
+
+  // Today's minutes including anything still waiting to sync.
+  const pendingMinutes = pendingMinutesFor(pending);
+  const streak = status?.streak;
+  const todayMinutes = (streak?.today_minutes ?? 0) + pendingMinutes;
+  const goalMinutes = streak?.goal_minutes ?? 60;
 
   const value = {
     api,
@@ -247,6 +417,18 @@ export function FocusProvider({ children }) {
     start,
     stop,
     refresh,
+    topics,
+    addTopic,
+    renameTopic,
+    deleteTopic,
+    piSettings: status?.settings,
+    savePiSettings,
+    pending,
+    pendingMinutes,
+    syncPending,
+    todayMinutes,
+    goalMinutes,
+    goalReached: todayMinutes >= goalMinutes,
     permissions,
     refreshPermissions: () => setPermissions(readPermissions()),
     toast,

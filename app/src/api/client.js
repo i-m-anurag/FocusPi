@@ -43,9 +43,16 @@ export function createApi({ serverUrl, apiKey }) {
   return {
     health: () => request('/api/health'),
     status: () => request('/api/status'),
-    start: (minutes, label) => request('/api/focus/start', { method: 'POST', body: { minutes, label } }),
+    start: (body) => request('/api/focus/start', { method: 'POST', body }),
     stop: () => request('/api/focus/stop', { method: 'POST' }),
+    sync: (sessions) => request('/api/focus/sync', { method: 'POST', body: { sessions } }),
     stats: (days = 7) => request(`/api/stats?days=${days}`),
-    history: (limit = 30) => request(`/api/focus/history?limit=${limit}`)
+    history: (limit = 30) => request(`/api/focus/history?limit=${limit}`),
+    topics: () => request('/api/topics'),
+    addTopic: (name) => request('/api/topics', { method: 'POST', body: { name } }),
+    updateTopic: (id, patch) => request(`/api/topics/${id}`, { method: 'PATCH', body: patch }),
+    deleteTopic: (id) => request(`/api/topics/${id}`, { method: 'DELETE' }),
+    getSettings: () => request('/api/settings'),
+    saveSettings: (patch) => request('/api/settings', { method: 'PUT', body: patch })
   };
 }

@@ -1,13 +1,20 @@
 """FocusPi REST API (Flask served by waitress).
 
 Endpoints (all JSON):
-  GET  /api/health                 liveness check (no auth)
-  GET  /api/status                 clock + active focus session + streak + weather
-  POST /api/focus/start            {"minutes": 30, "label": "DSA"}
-  POST /api/focus/stop             cancel the running session
-  GET  /api/focus/history?limit=50 recent sessions
-  GET  /api/stats?days=7           daily minutes, streak, totals
-  GET  /api/weather                cached weather
+  GET    /api/health                 liveness check (no auth)
+  GET    /api/status                 clock + active session + streak + weather + settings
+  POST   /api/focus/start            {"minutes": 30, "topic_id": 2, "client_id": "..."}
+  POST   /api/focus/stop             cancel the running session
+  POST   /api/focus/sync             upload sessions recorded offline on the phone
+  GET    /api/focus/history?limit=50 recent sessions
+  GET    /api/stats?days=7           daily minutes, streak, totals, minutes per topic
+  GET    /api/topics                 the learning list
+  POST   /api/topics                 {"name": "System design"}
+  PATCH  /api/topics/<id>            {"name": "...", "archived": true}
+  DELETE /api/topics/<id>
+  GET    /api/settings               OLED brightness, night dimming, daily goal
+  PUT    /api/settings               change any of the above
+  GET    /api/weather                cached weather
 """
 
 import logging
@@ -28,7 +35,7 @@ def add_cors_headers(response):
     # Lets a browser (e.g. the app running on web during development) call the API.
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-API-Key"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
     return response
 
 
@@ -64,6 +71,8 @@ def status():
         last_session=_last_finished(),
         streak=db.streak(),
         today=db.daily_minutes(days=1)[0],
+        topics=db.list_topics(),
+        settings=db.get_settings(),
         weather=weather.current(),
         default_minutes=config.DEFAULT_MINUTES,
     )
@@ -79,12 +88,18 @@ def focus_start():
         return jsonify(error="minutes must be a number"), 400
     if not 1 <= minutes <= config.MAX_MINUTES:
         return jsonify(error=f"minutes must be between 1 and {config.MAX_MINUTES}"), 400
-    label = str(body.get("label", "")).strip()[:60]
     try:
-        session = db.start_session(minutes, label)
+        session = db.start_session(
+            minutes,
+            label=str(body.get("label", "")),
+            topic_id=body.get("topic_id"),
+            client_id=body.get("client_id"),
+        )
     except db.ActiveSessionError as e:
         return jsonify(error=str(e), focus=e.session), 409
-    log.info("Focus started: %s min %r", minutes, label)
+    except db.TopicError as e:
+        return jsonify(error=str(e)), 400
+    log.info("Focus started: %s min %r", minutes, session["label"])
     return jsonify(focus=session, server_time=int(time.time())), 201
 
 
@@ -97,6 +112,21 @@ def focus_stop():
     return jsonify(focus=None, stopped=session, streak=db.streak())
 
 
+@app.post("/api/focus/sync")
+def focus_sync():
+    """Receive sessions the phone completed while it could not reach the Pi."""
+    body = request.get_json(silent=True) or {}
+    sessions = body.get("sessions")
+    if not isinstance(sessions, list):
+        return jsonify(error="sessions must be a list"), 400
+    if len(sessions) > 500:
+        return jsonify(error="too many sessions in one request (max 500)"), 400
+    result = db.import_sessions(sessions)
+    if result["imported"]:
+        log.info("Synced %s offline session(s) from the phone", result["imported"])
+    return jsonify(**result, streak=db.streak(), today=db.daily_minutes(days=1)[0])
+
+
 @app.get("/api/focus/history")
 def focus_history():
     limit = min(max(request.args.get("limit", 50, type=int), 1), 500)
@@ -107,7 +137,63 @@ def focus_history():
 def stats():
     db.complete_due()
     days = min(max(request.args.get("days", 7, type=int), 1), 366)
-    return jsonify(daily=db.daily_minutes(days=days), streak=db.streak(), totals=db.totals())
+    return jsonify(
+        daily=db.daily_minutes(days=days),
+        streak=db.streak(),
+        totals=db.totals(),
+        topics=db.topic_totals(days=days),
+    )
+
+
+# --- Learning list ----------------------------------------------------------
+@app.get("/api/topics")
+def topics_list():
+    include_archived = request.args.get("archived") == "1"
+    return jsonify(topics=db.list_topics(include_archived=include_archived))
+
+
+@app.post("/api/topics")
+def topics_add():
+    body = request.get_json(silent=True) or {}
+    try:
+        topic_id = db.add_topic(body.get("name", ""))
+    except db.TopicError as e:
+        return jsonify(error=str(e)), 400
+    return jsonify(id=topic_id, topics=db.list_topics()), 201
+
+
+@app.patch("/api/topics/<int:topic_id>")
+def topics_update(topic_id):
+    body = request.get_json(silent=True) or {}
+    try:
+        db.update_topic(topic_id, name=body.get("name"), archived=body.get("archived"))
+    except db.TopicError as e:
+        return jsonify(error=str(e)), 400
+    return jsonify(topics=db.list_topics())
+
+
+@app.delete("/api/topics/<int:topic_id>")
+def topics_delete(topic_id):
+    if not db.delete_topic(topic_id):
+        return jsonify(error="Topic not found"), 404
+    return jsonify(topics=db.list_topics())
+
+
+# --- Settings ---------------------------------------------------------------
+@app.get("/api/settings")
+def settings_get():
+    return jsonify(settings=db.get_settings())
+
+
+@app.put("/api/settings")
+def settings_put():
+    body = request.get_json(silent=True) or {}
+    try:
+        settings = db.update_settings(body)
+    except (TypeError, ValueError):
+        return jsonify(error="Invalid settings value"), 400
+    log.info("Settings updated: %s", settings)
+    return jsonify(settings=settings)
 
 
 @app.get("/api/weather")

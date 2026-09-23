@@ -10,6 +10,10 @@ session from your phone:
 - the countdown runs **on the phone** (in the app and as a notification) **and on the OLED**.
 - the Pi records the session in **SQLite** and tracks your **daily learning streak**.
 
+You pick what you are learning from your own **topic list**, and away from home the phone
+**runs sessions offline** and uploads them the next time it reaches the Pi, so the streak
+keeps counting while you travel.
+
 ![OLED screens](docs/oled-screens.png)
 
 ## Hardware
@@ -154,12 +158,33 @@ Pick who can still call you: **Anyone / Contacts / Starred**, plus *repeat calle
 
 ## How the streak works
 
-- A day counts once your focused minutes that day reach `FOCUS_STREAK_MIN_MINUTES` (default 1,
-  so one completed session is enough).
+- Every day has a **goal** (1 hour by default). Reach it and the day counts towards your streak.
+- Minutes **add up across the day**: 2x30 min or 4x15 min both reach the hour.
 - Completed sessions count in full. A session **stopped early** still counts its minutes if
   it lasted at least `FOCUS_PARTIAL_CREDIT_MINUTES` (default 10).
 - The current streak stays alive for the whole of today. It only resets if you miss a full day.
 - A session belongs to the day it **started** on (Pi local time).
+- Change the goal any time under **Settings -> Daily goal** in the app. The streak is worked
+  out from your history, so changing the goal re-scores past days too.
+
+## Learning topics
+
+Your topic list lives on the Pi. Add topics in **Settings -> What I'm learning** (or straight
+from the dropdown on the Focus tab), then pick one when you start a session. The Progress tab
+shows your minutes per topic. Renaming a topic updates past sessions; removing one keeps the
+history but takes it out of the dropdown.
+
+## Away from the Pi
+
+If the Pi cannot be reached, the app says **On phone** and runs the session itself: Do Not
+Disturb, the countdown and the notification all work as usual, and the session is saved on the
+phone. The next time the app reaches the Pi it uploads everything automatically (a chip shows
+how many sessions are waiting; tapping it syncs immediately). Each session carries an id, so a
+retried sync never counts a session twice.
+
+The OLED can only show sessions the Pi knows about, so a session that ran away from home
+appears in your history and streak after it syncs, not on the screen while it runs. Adding or
+renaming topics and changing settings also need the Pi.
 
 ## Configuration (`pi/focuspi.env`)
 
@@ -170,13 +195,15 @@ Pick who can still call you: **Anyone / Contacts / Starred**, plus *repeat calle
 | `FOCUS_CITY` | `New Delhi` | City for weather (geocoded by Open-Meteo) |
 | `FOCUS_LAT` / `FOCUS_LON` | | Exact coordinates (override the city) |
 | `FOCUS_DEFAULT_MINUTES` | `30` | Default session length |
-| `FOCUS_STREAK_MIN_MINUTES` | `1` | Minutes a day needs to count for the streak |
+| `FOCUS_STREAK_MIN_MINUTES` | `60` | Starting daily goal; change it later in the app |
 | `FOCUS_PARTIAL_CREDIT_MINUTES` | `10` | Minimum length for a stopped session to count |
 | `FOCUS_OLED_DRIVER` | `sh1106` | `sh1106` (1.3") or `ssd1306` (0.96") |
 | `FOCUS_I2C_ADDR` | `0x3C` | OLED I2C address |
 | `FOCUS_OLED_ROTATE` | `0` | `2` = upside down |
 | `FOCUS_24H` | `1` | `0` for a 12-hour clock |
-| `FOCUS_NIGHT_START_HOUR` / `_END_HOUR` | `23` / `6` | Dim the OLED at night |
+| `FOCUS_OLED_CONTRAST` | `255` | Starting brightness (1-255); the app has a slider |
+| `FOCUS_NIGHT_DIM` | `1` | Dim at night (the app can switch this on and off) |
+| `FOCUS_NIGHT_START_HOUR` / `_END_HOUR` | `23` / `6` | Hours the night dimming applies |
 
 Weather comes from [Open-Meteo](https://open-meteo.com), which is free and needs no API key.
 It refreshes every 15 minutes.
@@ -188,11 +215,17 @@ All endpoints return JSON. When `FOCUS_API_KEY` is set, send `X-API-Key: <key>` 
 | Method | Path | Body / query | Returns |
 |--------|------|--------------|---------|
 | GET  | `/api/health` | | `{ok, server_time}` |
-| GET  | `/api/status` | | `focus` (active session or null), `last_session`, `streak`, `today`, `weather` |
-| POST | `/api/focus/start` | `{"minutes": 30, "label": "DSA"}` | `201 {focus}` · `409` if one is already running |
+| GET  | `/api/status` | | `focus` (active session or null), `last_session`, `streak`, `today`, `topics`, `settings`, `weather` |
+| POST | `/api/focus/start` | `{"minutes": 30, "topic_id": 2}` | `201 {focus}` · `409` if one is already running |
 | POST | `/api/focus/stop` | | `{stopped, streak}` |
+| POST | `/api/focus/sync` | `{"sessions": [...]}` | Upload offline sessions: `{imported, duplicates, rejected}` |
 | GET  | `/api/focus/history` | `?limit=50` | `{sessions: [...]}` |
-| GET  | `/api/stats` | `?days=7` | `{daily: [...], streak, totals}` |
+| GET  | `/api/stats` | `?days=7` | `{daily: [...], streak, totals, topics}` |
+| GET  | `/api/topics` | | `{topics: [...]}` |
+| POST | `/api/topics` | `{"name": "DSA"}` | `201 {id, topics}` |
+| PATCH | `/api/topics/<id>` | `{"name": "...", "archived": true}` | `{topics}` |
+| DELETE | `/api/topics/<id>` | | `{topics}` |
+| GET / PUT | `/api/settings` | `{"oled_brightness": 120, "daily_goal_minutes": 60}` | `{settings}` |
 | GET  | `/api/weather` | | `{weather}` |
 
 Quick test from any computer on your Wi-Fi:
