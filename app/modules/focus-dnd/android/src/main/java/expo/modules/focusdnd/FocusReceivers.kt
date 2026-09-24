@@ -7,8 +7,13 @@ import android.content.Intent
 /** AlarmManager fires this when the focus timer runs out. */
 class FocusEndReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
-    if (intent.action == FocusController.ACTION_END) {
-      FocusController.stop(context, completed = true)
+    when (intent.action) {
+      FocusController.ACTION_END -> FocusController.stop(context, completed = true)
+      // "Stop alarm" button on the completion notification
+      FocusController.ACTION_STOP_ALARM -> {
+        FocusController.stopAlarm(context)
+        FocusController.dismissDoneNotification(context)
+      }
     }
   }
 }

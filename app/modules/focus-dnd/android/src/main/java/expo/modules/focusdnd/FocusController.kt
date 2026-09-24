@@ -9,7 +9,16 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.graphics.drawable.Icon
+import android.media.AudioAttributes
+import android.media.Ringtone
+import android.media.RingtoneManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 
 /**
  * Turns Android Do Not Disturb into "calls only" for the length of a focus
@@ -24,10 +33,18 @@ import android.os.Build
 object FocusController {
   private const val PREFS = "focus_dnd"
   private const val CHANNEL_ONGOING = "focus_ongoing"
-  private const val CHANNEL_DONE = "focus_done"
+  private const val CHANNEL_DONE_SILENT = "focus_done_silent"
+  private const val CHANNEL_DONE_ALERT = "focus_done_alert"
   private const val NOTIF_ONGOING = 4201
   private const val NOTIF_DONE = 4202
   const val ACTION_END = "expo.modules.focusdnd.ACTION_END"
+  const val ACTION_STOP_ALARM = "expo.modules.focusdnd.ACTION_STOP_ALARM"
+
+  // The end-of-session alarm. It rings from a broadcast receiver, so it works
+  // even when the app has been closed.
+  private val handler = Handler(Looper.getMainLooper())
+  private var ringtone: Ringtone? = null
+  private var stopAlarmAt = 0L
 
   private fun nm(ctx: Context) = ctx.getSystemService(NotificationManager::class.java)
   private fun prefs(ctx: Context): SharedPreferences = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -38,6 +55,90 @@ object FocusController {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
     return ctx.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
   }
+
+  /** Alarm preferences, set from the app's Settings tab. */
+  fun setAlarmOptions(ctx: Context, enabled: Boolean, sound: String, seconds: Int, vibrate: Boolean) {
+    prefs(ctx).edit()
+      .putBoolean("alarm_enabled", enabled)
+      .putString("alarm_sound", sound)
+      .putInt("alarm_seconds", seconds.coerceIn(3, 300))
+      .putBoolean("alarm_vibrate", vibrate)
+      .apply()
+  }
+
+  fun isAlarmPlaying() = ringtone?.isPlaying == true
+
+  /** Rings the chosen tone (looping) and vibrates until stopped or timed out. */
+  fun playAlarm(ctx: Context, force: Boolean = false) {
+    val prefs = prefs(ctx)
+    if (!force && !prefs.getBoolean("alarm_enabled", true)) return
+    val seconds = prefs.getInt("alarm_seconds", 15).coerceIn(3, 300)
+    val type = when (prefs.getString("alarm_sound", "alarm")) {
+      "notification" -> RingtoneManager.TYPE_NOTIFICATION
+      "ringtone" -> RingtoneManager.TYPE_RINGTONE
+      else -> RingtoneManager.TYPE_ALARM
+    }
+    stopAlarm(ctx)
+
+    val uri = RingtoneManager.getDefaultUri(type)
+      ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+    val tone = RingtoneManager.getRingtone(ctx.applicationContext, uri)
+    if (tone != null) {
+      // USAGE_ALARM keeps it audible while Do Not Disturb allows alarms.
+      tone.audioAttributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_ALARM)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+        .build()
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        tone.isLooping = true
+      }
+      try {
+        tone.play()
+        ringtone = tone
+      } catch (e: Exception) {
+        ringtone = null
+      }
+    }
+
+    if (prefs.getBoolean("alarm_vibrate", true)) {
+      vibrator(ctx)?.let { v ->
+        val pattern = longArrayOf(0, 600, 400)
+        val attrs = AudioAttributes.Builder()
+          .setUsage(AudioAttributes.USAGE_ALARM)
+          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+          .build()
+        try {
+          v.vibrate(VibrationEffect.createWaveform(pattern, 0), attrs)
+        } catch (e: Exception) {
+        }
+      }
+    }
+
+    stopAlarmAt = System.currentTimeMillis() + seconds * 1000L
+    handler.postDelayed({ stopAlarm(ctx) }, seconds * 1000L)
+  }
+
+  fun stopAlarm(ctx: Context) {
+    handler.removeCallbacksAndMessages(null)
+    try {
+      ringtone?.stop()
+    } catch (e: Exception) {
+    }
+    ringtone = null
+    stopAlarmAt = 0L
+    try {
+      vibrator(ctx)?.cancel()
+    } catch (e: Exception) {
+    }
+  }
+
+  private fun vibrator(ctx: Context): Vibrator? =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+      ctx.getSystemService(VibratorManager::class.java)?.defaultVibrator
+    } else {
+      @Suppress("DEPRECATION")
+      ctx.getSystemService(Vibrator::class.java)
+    }
 
   fun isActive(ctx: Context) = prefs(ctx).getBoolean("active", false)
   fun endAt(ctx: Context) = prefs(ctx).getLong("end_at", 0L)
@@ -147,7 +248,10 @@ object FocusController {
     val label = prefs.getString("label", "") ?: ""
     prefs.edit().putBoolean("active", false).remove("end_at").apply()
 
-    if (completed) showDone(ctx, label)
+    if (completed) {
+      showDone(ctx, label)
+      playAlarm(ctx)
+    }
   }
 
   /** Called after a reboot or app update: finish or re-arm a running session. */
@@ -203,8 +307,15 @@ object FocusController {
       }
     )
     nm.createNotificationChannel(
-      NotificationChannel(CHANNEL_DONE, "Focus complete", NotificationManager.IMPORTANCE_HIGH).apply {
+      NotificationChannel(CHANNEL_DONE_ALERT, "Focus complete", NotificationManager.IMPORTANCE_HIGH).apply {
         description = "Tells you when a focus session is finished"
+      }
+    )
+    nm.createNotificationChannel(
+      NotificationChannel(CHANNEL_DONE_SILENT, "Focus complete (alarm)", NotificationManager.IMPORTANCE_HIGH).apply {
+        description = "Shown when the end-of-session alarm rings"
+        setSound(null, null)
+        enableVibration(false)
       }
     )
   }
@@ -245,17 +356,34 @@ object FocusController {
     }
   }
 
+  fun dismissDoneNotification(ctx: Context) {
+    nm(ctx).cancel(NOTIF_DONE)
+  }
+
   private fun showDone(ctx: Context, label: String) {
     ensureChannels(ctx)
-    val n = builder(ctx, CHANNEL_DONE)
+    val ringing = prefs(ctx).getBoolean("alarm_enabled", true)
+    val builder = builder(ctx, if (ringing) CHANNEL_DONE_SILENT else CHANNEL_DONE_ALERT)
       .setSmallIcon(R.drawable.focus_dnd_notification)
       .setContentTitle("Focus session complete")
       .setContentText(if (label.isNotBlank()) "Nice work on $label. Take a short break." else "Nice work! Take a short break.")
       .setAutoCancel(true)
       .setContentIntent(openAppIntent(ctx))
-      .build()
+    if (ringing) {
+      builder.setCategory(Notification.CATEGORY_ALARM)
+      val stop = PendingIntent.getBroadcast(
+        ctx, 2,
+        Intent(ctx, FocusEndReceiver::class.java).setAction(ACTION_STOP_ALARM),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+      )
+      builder.addAction(
+        Notification.Action.Builder(
+          Icon.createWithResource(ctx, R.drawable.focus_dnd_notification), "Stop alarm", stop
+        ).build()
+      )
+    }
     try {
-      nm(ctx).notify(NOTIF_DONE, n)
+      nm(ctx).notify(NOTIF_DONE, builder.build())
     } catch (e: SecurityException) {
     }
   }

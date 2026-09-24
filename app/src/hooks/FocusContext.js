@@ -5,7 +5,10 @@ import {
   getFocusState,
   hasPolicyAccess,
   isDndSupported,
+  previewAlarm,
+  setAlarmOptions,
   startFocus as nativeStart,
+  stopAlarm as nativeStopAlarm,
   stopFocus as nativeStop
 } from '../../modules/focus-dnd';
 import { createApi } from '../api/client';
@@ -66,6 +69,7 @@ export function FocusProvider({ children }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
   const [celebration, setCelebration] = useState(null);
+  const [alarmPlaying, setAlarmPlaying] = useState(false);
   const [now, setNow] = useState(Date.now());
 
   const sessionRef = useRef(null);
@@ -235,6 +239,17 @@ export function FocusProvider({ children }) {
     }
   }, []);
 
+  // The alarm rings from native code, so it needs its own copy of the settings.
+  useEffect(() => {
+    if (!settings) return;
+    setAlarmOptions({
+      enabled: settings.alarmEnabled,
+      sound: settings.alarmSound,
+      seconds: settings.alarmSeconds,
+      vibrate: settings.alarmVibrate
+    });
+  }, [settings?.alarmEnabled, settings?.alarmSound, settings?.alarmSeconds, settings?.alarmVibrate]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     refresh();
     const poll = setInterval(refresh, POLL_MS);
@@ -252,7 +267,10 @@ export function FocusProvider({ children }) {
 
   // 1s tick for countdowns and the clock.
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
+    const t = setInterval(() => {
+      setNow(Date.now());
+      if (isDndSupported) setAlarmPlaying(getFocusState().alarmPlaying === true);
+    }, 1000);
     return () => clearInterval(t);
   }, []);
 
@@ -289,6 +307,7 @@ export function FocusProvider({ children }) {
 
   const start = useCallback(async (minutes, { label = '', topicId = null } = {}) => {
     if (!api) return;
+    nativeStopAlarm();
     setBusy(true);
     try {
       const res = await api.start({ minutes, label, topic_id: topicId, client_id: newClientId() });
@@ -315,7 +334,13 @@ export function FocusProvider({ children }) {
     }
   }, [api, applyServerFocus, notify, refresh, startOffline]);
 
+  const stopAlarm = useCallback(() => {
+    nativeStopAlarm();
+    setAlarmPlaying(false);
+  }, []);
+
   const stop = useCallback(async () => {
+    nativeStopAlarm();
     const local = localRef.current;
     if (local) {
       if (isDndSupported) nativeStop(false);
@@ -467,7 +492,14 @@ export function FocusProvider({ children }) {
     clearToast: () => setToast(null),
     notify,
     celebration,
-    clearCelebration: () => setCelebration(null)
+    clearCelebration: () => {
+      nativeStopAlarm();
+      setAlarmPlaying(false);
+      setCelebration(null);
+    },
+    alarmPlaying,
+    stopAlarm,
+    previewAlarm
   };
 
   return <FocusContext.Provider value={value}>{children}</FocusContext.Provider>;

@@ -46,7 +46,9 @@ export function FocusScreen() {
     goalReached,
     permissions,
     celebration,
-    clearCelebration
+    clearCelebration,
+    alarmPlaying,
+    stopAlarm
   } = useFocus();
 
   const [minutes, setMinutes] = useState(30);
@@ -167,10 +169,22 @@ export function FocusScreen() {
 
         {celebration && !running ? (
           <Surface elevation={0} style={[styles.celebrate, { backgroundColor: theme.colors.tertiaryContainer }]}>
-            <Text variant="titleMedium" style={{ color: theme.colors.onTertiaryContainer, flex: 1 }}>
-              Session complete: +{celebration.planned_minutes} min.
-              {celebration.offline ? ' Saved on your phone.' : ''} Take a break.
-            </Text>
+            <View style={styles.celebrateText}>
+              <Text variant="titleMedium" style={{ color: theme.colors.onTertiaryContainer }}>
+                Session complete: +{celebration.planned_minutes} min.
+                {celebration.offline ? ' Saved on your phone.' : ''} Take a break.
+              </Text>
+              {alarmPlaying ? (
+                <Button
+                  mode="contained"
+                  icon="bell-off"
+                  onPress={stopAlarm}
+                  style={styles.stopAlarmButton}
+                >
+                  Stop alarm
+                </Button>
+              ) : null}
+            </View>
             <IconButton icon="close" size={18} onPress={clearCelebration} iconColor={theme.colors.onTertiaryContainer} />
           </Surface>
         ) : null}
@@ -337,6 +351,8 @@ const styles = StyleSheet.create({
   goalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   goalTrack: { height: 8, borderRadius: 4, overflow: 'hidden' },
   celebrate: { flexDirection: 'row', alignItems: 'center', borderRadius: 16, paddingLeft: 16 },
+  celebrateText: { flex: 1, paddingVertical: 8, gap: 8 },
+  stopAlarmButton: { alignSelf: 'flex-start', borderRadius: 20 },
   ringWrap: { alignItems: 'center', marginVertical: 4 },
   center: { textAlign: 'center' },
   topicButton: { height: 48 },

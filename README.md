@@ -176,6 +176,18 @@ Install the APK from the link EAS gives you. On the free plan builds can wait in
 Pick who can still call you: **Anyone / Contacts / Starred**, plus *repeat callers* and
 *alarms*.
 
+## When a session ends
+
+The phone rings an alarm, so you notice even with the app closed and the screen off. Under
+**Settings -> Alarm when a session ends** you can turn it off, choose the **alarm**,
+**ringtone** or **chime** sound, set how long it rings (5-60 seconds), switch vibration on or
+off, and test it. It plays on the alarm audio channel, so it stays audible while Do Not
+Disturb is on, as long as *Allow alarms* is on. Stop it from the notification, from the app,
+or just wait for it to time out.
+
+> The **alarm** sound follows your phone's alarm volume, which is separate from media and
+> ring volume. If that is turned down, pick **ringtone** or **chime** instead.
+
 ## How the streak works
 
 - Every day has a **goal** (1 hour by default). Reach it and the day counts towards your streak.

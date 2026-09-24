@@ -40,9 +40,33 @@ export function stopFocus(completed = false) {
   return Native.stopFocus(completed);
 }
 
+/** Alarm that rings when a session finishes. Stored natively, so the alarm
+ *  still rings with your settings when the app is closed. */
+export function setAlarmOptions({ enabled = true, sound = 'alarm', seconds = 15, vibrate = true } = {}) {
+  if (!Native) return false;
+  return Native.setAlarmOptions(enabled, sound, seconds, vibrate);
+}
+
+export function stopAlarm() {
+  if (!Native) return false;
+  return Native.stopAlarm();
+}
+
+export function previewAlarm() {
+  if (!Native) return false;
+  return Native.previewAlarm();
+}
+
 export function getFocusState() {
   if (!Native) {
-    return { active: false, endAtMs: 0, label: '', hasPolicyAccess: false, canScheduleExactAlarms: true };
+    return {
+      active: false,
+      endAtMs: 0,
+      label: '',
+      hasPolicyAccess: false,
+      canScheduleExactAlarms: true,
+      alarmPlaying: false
+    };
   }
   return Native.getState();
 }

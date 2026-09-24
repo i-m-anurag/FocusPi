@@ -10,6 +10,11 @@ export const DEFAULT_SETTINGS = {
   callers: 'any',
   repeatCallers: true,
   allowAlarms: true,
+  // Alarm when a session ends
+  alarmEnabled: true,
+  alarmSound: 'alarm', // 'alarm' | 'notification' | 'ringtone'
+  alarmSeconds: 15,
+  alarmVibrate: true,
   // Last chosen learning topic (an id from the Pi's list)
   lastTopicId: null
 };

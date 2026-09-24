@@ -51,6 +51,23 @@ class FocusDndModule : Module() {
       true
     }
 
+    Function("setAlarmOptions") { enabled: Boolean, sound: String, seconds: Int, vibrate: Boolean ->
+      FocusController.setAlarmOptions(context, enabled, sound, seconds, vibrate)
+      true
+    }
+
+    Function("stopAlarm") {
+      FocusController.stopAlarm(context)
+      FocusController.dismissDoneNotification(context)
+      true
+    }
+
+    /** Plays the alarm now so the user can hear their choice. */
+    Function("previewAlarm") {
+      FocusController.playAlarm(context, force = true)
+      true
+    }
+
     Function("stopFocus") { completed: Boolean ->
       FocusController.stop(context, completed)
       true
@@ -63,7 +80,8 @@ class FocusDndModule : Module() {
         "label" to FocusController.label(context),
         "interruptionFilter" to FocusController.interruptionFilter(context),
         "hasPolicyAccess" to FocusController.hasPolicyAccess(context),
-        "canScheduleExactAlarms" to FocusController.canScheduleExactAlarms(context)
+        "canScheduleExactAlarms" to FocusController.canScheduleExactAlarms(context),
+        "alarmPlaying" to FocusController.isAlarmPlaying()
       )
     }
   }

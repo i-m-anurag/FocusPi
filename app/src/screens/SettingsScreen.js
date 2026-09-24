@@ -23,6 +23,7 @@ import { useFocus } from '../hooks/FocusContext';
 import { formatMinutes } from '../utils/format';
 
 const GOAL_PRESETS = [30, 45, 60, 90, 120];
+const ALARM_SECONDS = [5, 15, 30, 60];
 
 export function SettingsScreen() {
   const theme = useTheme();
@@ -42,7 +43,10 @@ export function SettingsScreen() {
     resetAllData,
     pending,
     syncPending,
-    busy
+    busy,
+    alarmPlaying,
+    stopAlarm,
+    previewAlarm
   } = useFocus();
 
   const [serverUrl, setServerUrl] = useState('');
@@ -199,6 +203,73 @@ export function SettingsScreen() {
             )}
             style={styles.item}
           />
+        </Surface>
+
+        {/* --- End-of-session alarm --------------------------------------------- */}
+        <Surface elevation={1} style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text variant="titleMedium">Alarm when a session ends</Text>
+            <Switch
+              value={settings.alarmEnabled}
+              onValueChange={(v) => updateSettings({ alarmEnabled: v })}
+            />
+          </View>
+          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+            Rings even if the app is closed, and stays audible during Do Not Disturb as long as
+            alarms are allowed.
+          </Text>
+          {settings.alarmEnabled ? (
+            <>
+              <SegmentedButtons
+                value={settings.alarmSound}
+                onValueChange={(alarmSound) => updateSettings({ alarmSound })}
+                buttons={[
+                  { value: 'alarm', label: 'Alarm' },
+                  { value: 'ringtone', label: 'Ringtone' },
+                  { value: 'notification', label: 'Chime' }
+                ]}
+              />
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                Rings for
+              </Text>
+              <View style={styles.chips}>
+                {ALARM_SECONDS.map((sec) => (
+                  <Chip
+                    key={sec}
+                    selected={settings.alarmSeconds === sec}
+                    showSelectedOverlay
+                    onPress={() => updateSettings({ alarmSeconds: sec })}
+                  >
+                    {sec}s
+                  </Chip>
+                ))}
+              </View>
+              <List.Item
+                title="Vibrate"
+                description="Buzz along with the alarm"
+                right={() => (
+                  <Switch
+                    value={settings.alarmVibrate}
+                    onValueChange={(v) => updateSettings({ alarmVibrate: v })}
+                  />
+                )}
+                style={styles.item}
+              />
+              <Button
+                mode="outlined"
+                icon={alarmPlaying ? 'bell-off' : 'bell-ring-outline'}
+                onPress={alarmPlaying ? stopAlarm : previewAlarm}
+                disabled={!permissions.dndSupported}
+              >
+                {alarmPlaying ? 'Stop' : 'Test alarm'}
+              </Button>
+              {settings.alarmSound === 'alarm' ? (
+                <HelperText type="info" visible>
+                  Uses your phone's alarm volume, so check it is turned up.
+                </HelperText>
+              ) : null}
+            </>
+          ) : null}
         </Surface>
 
         {/* --- Raspberry Pi ----------------------------------------------------- */}
